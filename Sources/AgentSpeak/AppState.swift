@@ -20,6 +20,13 @@ final class AppState: ObservableObject {
     @Published private(set) var hookRegistered = false
     @Published private(set) var scriptInstalled = false
 
+    // Session-Steuerung (Sessions.swift)
+    @Published private(set) var sessions: [SessionInfo] = []
+    @Published private(set) var rules = SessionRules()
+    @Published private(set) var unheard = false
+    @Published private(set) var newSessionsOn = true
+    private var stamps: [FileStamp] = []
+
     @Published var showOverlay: Bool {
         didSet { UserDefaults.standard.set(showOverlay, forKey: "showOverlay") }
     }
@@ -56,10 +63,39 @@ final class AppState: ObservableObject {
         set(\.summarizing, Self.summarizingFresh())
         set(\.hookRegistered, HookInstaller.isRegistered())
         set(\.scriptInstalled, Paths.exists(Paths.script))
+        set(\.unheard, Paths.exists(Paths.unheard))
+        reloadSessions()
+    }
+
+    /// Liest Sessions, Regeln und Standard nur neu, wenn sich eine der Dateien geändert hat.
+    func reloadSessions(force: Bool = false) {
+        let now = [FileStamp(Paths.sessionsDir), FileStamp(Paths.rules), FileStamp(Paths.config)]
+        guard force || now != stamps else { return }
+        stamps = now
+        let list = SessionFiles.loadAll()
+        if list != sessions { sessions = list }
+        var r = SessionRules.load()
+        // Session-Ausnahmen verfallen mit ihrer Session (der Hook räumt Sessions nach 7 Tagen auf)
+        let known = Set(list.map(\.id))
+        if Paths.exists(Paths.sessionsDir), r.sessions.keys.contains(where: { !known.contains($0) }) {
+            r.sessions = r.sessions.filter { known.contains($0.key) }
+            try? r.save()
+            stamps = [FileStamp(Paths.sessionsDir), FileStamp(Paths.rules), FileStamp(Paths.config)]
+        }
+        if r != rules { rules = r }
+        set(\.newSessionsOn, HookConfig.load().newSessions != "off")
     }
 
     private func set(_ kp: ReferenceWritableKeyPath<AppState, Bool>, _ value: Bool) {
         if self[keyPath: kp] != value { self[keyPath: kp] = value }
+    }
+
+    /// Nur für `--snapshot`: Beispiel-Sessions statt echter Daten.
+    func injectForSnapshot(sessions: [SessionInfo], rules: SessionRules, unheard: Bool) {
+        self.sessions = sessions
+        self.rules = rules
+        self.unheard = unheard
+        stamps = [FileStamp(Paths.sessionsDir), FileStamp(Paths.rules), FileStamp(Paths.config)]
     }
 
     // MARK: Aktionen

@@ -193,6 +193,24 @@ final class SettingsModel: ObservableObject {
         AppState.shared.refresh()
     }
 
+    // MARK: Sessions
+
+    /// Ordner wählen und als Projekt-Regel anlegen – mit dem Gegenteil des Standards,
+    /// sonst hätte die Regel keine Wirkung.
+    func addProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = tr("Hinzufügen", "Add")
+        panel.message = tr("Projektordner wählen. Bei Git-Repositories gilt die Regel für das ganze Repo samt Worktrees.",
+                           "Choose a project folder. For Git repositories the rule covers the whole repo including worktrees.")
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let root = AppState.projectRoot(of: url)
+        AppState.shared.setProject(root, on: config.newSessions == "off")
+    }
+
     func setLaunchAtLogin(_ on: Bool) {
         do { try AppState.shared.setLaunchAtLogin(on) } catch {
             flash(tr("Login-Start: ", "Launch at login: ") + error.localizedDescription, error: true)
@@ -209,6 +227,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             Form {
                 speechSection
+                sessionsSection
                 elevenLabsSection
                 systemVoiceSection
                 summarySection
@@ -240,7 +259,7 @@ struct SettingsView: View {
             Picker(tr("Sprache", "Language"), selection: $model.config.language) {
                 ForEach(LanguagePreference.allCases) { l in Text(l.label).tag(l.rawValue) }
             }
-            Toggle(tr("Vorlesen aktiv", "Read aloud"), isOn: Binding(get: { state.enabled }, set: { state.setEnabled($0) }))
+            Toggle(tr("Ruhe – alles stumm", "Mute all sessions"), isOn: Binding(get: { !state.enabled }, set: { state.setEnabled(!$0) }))
             Picker(tr("Sprachausgabe", "Voice output"), selection: $model.config.ttsEngine) {
                 Text(tr("Automatisch (ElevenLabs, sonst Systemstimme)", "Automatic (ElevenLabs, else system voice)")).tag("auto")
                 Text(tr("Nur ElevenLabs", "ElevenLabs only")).tag("elevenlabs")
@@ -264,6 +283,83 @@ struct SettingsView: View {
             FooterText(tr("Nach jeder Antwort von Claude Code wird eine kurze Zusammenfassung vorgelesen. Braucht Claude eine Entscheidung von dir, kommen Hintergrund und Empfehlung dazu. Die Sprache gilt für die App und die Ansagen.",
                           "After every Claude Code reply, a short summary is read aloud. If Claude needs a decision from you, it adds the background and a recommendation. The language applies to the app and the spoken summaries."))
         }
+    }
+
+    private var sessionsSection: some View {
+        Section {
+            Picker(tr("Neue Sessions", "New sessions"), selection: $model.config.newSessions) {
+                Text(tr("vorlesen", "read aloud")).tag("on")
+                Text(tr("stumm", "muted")).tag("off")
+            }
+            .pickerStyle(.segmented)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(tr("Projekt-Regeln", "Project rules"))
+                    Spacer()
+                    Button(tr("Projekt hinzufügen …", "Add project …")) { model.addProject() }
+                }
+                if state.rules.projects.isEmpty {
+                    Text(tr("Keine – es gilt der Standard.", "None – the default applies."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(state.rules.projects.keys.sorted(), id: \.self) { path in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(URL(fileURLWithPath: path).lastPathComponent)
+                            Text(path).font(.caption).foregroundStyle(.secondary)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                        Spacer()
+                        Picker("", selection: Binding(get: { state.rules.projects[path] == "on" },
+                                                      set: { state.setProject(path, on: $0) })) {
+                            Text(tr("vorlesen", "read aloud")).tag(true)
+                            Text(tr("stumm", "muted")).tag(false)
+                        }
+                        .labelsHidden().pickerStyle(.segmented).fixedSize()
+                        removeButton { state.setProject(path, on: nil) }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(tr("Session-Ausnahmen", "Session exceptions"))
+                let ids = state.rules.sessions.keys.sorted { a, b in
+                    (state.sessions.first { $0.id == a }?.lastSeen ?? 0) > (state.sessions.first { $0.id == b }?.lastSeen ?? 0)
+                }
+                if ids.isEmpty {
+                    Text(tr("Keine. Einzelne Sessions schaltest du im Overlay oder in der Menüleiste um.",
+                            "None. Toggle single sessions in the overlay or the menu bar."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(ids, id: \.self) { id in
+                    let s = state.sessions.first { $0.id == id }
+                    HStack {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(s?.title(maxLabel: 45) ?? id).lineLimit(1)
+                            if let s {
+                                Text(relativeTime(s.lastSeenDate)).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Text(state.rules.sessions[id] == "on" ? tr("vorlesen", "read aloud") : tr("stumm", "muted"))
+                            .foregroundStyle(.secondary)
+                        removeButton { state.removeSessionRule(id) }
+                    }
+                }
+            }
+        } header: {
+            Text("Sessions")
+        } footer: {
+            FooterText(tr("Ausnahmen gehen vor dem Standard, eine Session-Ausnahme vor einer Projekt-Regel. Mit `AGENT_SPEAK=off claude` (oder `on`) legst du eine Session beim Start fest; das geht vor allem anderen. Session-Ausnahmen verfallen nach 7 Tagen ohne Aktivität.",
+                          "Exceptions override the default, and a session exception overrides a project rule. Start with `AGENT_SPEAK=off claude` (or `on`) to fix a session; that overrides everything else. Session exceptions expire after 7 days without activity."))
+        }
+    }
+
+    private func removeButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+            .buttonStyle(.borderless)
+            .help(tr("Entfernen", "Remove"))
     }
 
     private var elevenLabsSection: some View {

@@ -8,19 +8,28 @@
 #   speak-summary.sh --replay     -> letzte Ansage noch einmal vorlesen
 #   speak-summary.sh --voices     -> ElevenLabs-Stimmen auflisten (ID + Name)
 #   speak-summary.sh --default-prompt [de|en] -> Standard-Prompt ausgeben
+#   speak-summary.sh --speak-session <id> -> ungehörte Antwort einer Session zusammenfassen und vorlesen
+#   speak-summary.sh --project-root <pfad> -> Projekt (Git-Repo samt Worktrees) zu einem Ordner ausgeben
 #   speak-summary.sh --mute|--unmute|--stop|--version
 #
 # Konfiguration: ~/.claude/hooks/speak-summary/config (wird von der Agent-Speak-App gepflegt)
 # Eigener Prompt: ~/.claude/hooks/speak-summary/prompt.txt (optional; {{LAENGE}}/{{LENGTH}} wird ersetzt)
 # ElevenLabs-Key im Schlüsselbund, Dienst "elevenlabs-api-key".
 #
+# Session-Steuerung (siehe docs/adr/0001-session-steuerung.md):
+#   rules.json          -> Ausnahmen pro Session und Projekt (schreibt die App)
+#   sessions/<id>.json  -> zuletzt gesehene Sessions (schreibt der Hook)
+#   sessions/<id>.reply -> ungehörte Antwort einer stummen Session
+#   unheard             -> es gibt Ungehörtes (Punkt am Overlay)
+#   AGENT_SPEAK=on|off  -> Umgebungsvariable, hat Vorrang vor allen Regeln
+#
 # Statusdateien (liest die App, um das Overlay zu animieren):
-#   muted        -> Vorlesen ist aus
+#   muted        -> Ruhe-Taste: vorübergehend alles stumm
 #   summarizing  -> Zusammenfassung läuft gerade
 #   player.pid   -> Ansage läuft gerade (PID von afplay/say)
 #   last.txt     -> zuletzt gesprochener Text
 
-HOOK_VERSION=4
+HOOK_VERSION=5
 
 set -u
 export PATH="$HOME/.local/bin:$HOME/.claude/local:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
@@ -38,6 +47,7 @@ SAY_VOICE=""                   # leer = Standardstimme der Sprache
 SAY_RATE="190"
 SUMMARY_MODEL="haiku"
 SUMMARY_LENGTH="normal"        # kurz | normal | ausfuehrlich
+NEW_SESSIONS="on"              # on | off  (Standard für Sessions ohne Ausnahme)
 CLAUDE_BIN=""
 [ -f "$DIR/config" ] && . "$DIR/config"
 [ -n "$CLAUDE_BIN" ] || CLAUDE_BIN="claude"
@@ -58,6 +68,7 @@ if [ -z "$SAY_VOICE" ]; then
 fi
 
 LOG="$DIR/last.log"
+SESS="$DIR/sessions"
 PIDFILE="$DIR/player.pid"
 SUMFILE="$DIR/summarizing"
 
@@ -173,10 +184,9 @@ speak() {
   esac
 }
 
-run() {
-  local reply text
-  reply=$(extract_last_reply "$1")
-  [ -n "$reply" ] || exit 0
+# Antworttext zusammenfassen und vorlesen
+speak_reply() {
+  local reply="$1" text
   touch "$SUMFILE"
   text=$(summarize "$reply")
   rm -f "$SUMFILE"
@@ -188,10 +198,132 @@ run() {
   speak "$text"
 }
 
+run() {
+  local reply
+  reply=$(extract_last_reply "$1")
+  [ -n "$reply" ] || exit 0
+  speak_reply "$reply"
+}
+
+# ---------- Session-Steuerung ----------
+
+# Projekt = Git-Repository samt Worktrees (ohne git-Aufruf), sonst der Ordner selbst
+project_root() {
+  local d="$1" gd cd
+  while [ -n "$d" ] && [ "$d" != "/" ] && [ "$d" != "." ]; do
+    if [ -d "$d/.git" ]; then echo "$d"; return; fi
+    if [ -f "$d/.git" ]; then
+      gd=$(sed -n 's/^gitdir: //p' "$d/.git" | head -1)
+      case "$gd" in /*) ;; *) gd="$d/$gd" ;; esac
+      if [ -f "$gd/commondir" ]; then
+        cd=$(head -1 "$gd/commondir")
+        case "$cd" in /*) ;; *) cd="$gd/$cd" ;; esac
+        cd=$( (cd "$cd/.." 2>/dev/null && pwd) )
+        [ -n "$cd" ] && { echo "$cd"; return; }
+      fi
+      echo "$d"; return
+    fi
+    d=$(dirname "$d")
+  done
+  echo "$1"
+}
+
+env_rule() {
+  case "$(printf '%s' "${AGENT_SPEAK:-}" | tr 'A-Z' 'a-z')" in
+    on|1|true|yes)  echo on ;;
+    off|0|false|no) echo off ;;
+  esac
+}
+
+# Rangfolge: AGENT_SPEAK -> Session-Ausnahme -> Projekt-Regel (längster Pfad) -> Standard
+decide() {
+  local sid="$1" cwd="$2" root="$3" locked="$4" r=""
+  [ -n "$locked" ] && { echo "$locked"; return; }
+  if [ -s "$DIR/rules.json" ]; then
+    r=$(jq -r --arg s "$sid" --arg c "$cwd" --arg p "$root" '
+      (.sessions[$s] // null) as $sr
+      | ([(.projects // {}) | to_entries[]
+          | select(.key == $p or .key == $c or ($c | startswith(.key + "/")))]
+         | sort_by(.key | length) | last | .value?) as $pr
+      | ($sr // $pr // empty)' "$DIR/rules.json" 2>/dev/null)
+  fi
+  case "$r" in
+    on|off) echo "$r" ;;
+    *) if [ "$NEW_SESSIONS" = off ]; then echo off; else echo on; fi ;;
+  esac
+}
+
+# Erster echter Prompt aus dem Verlauf (nach bestem Bemühen, das Format ist intern)
+first_prompt() {
+  [ -f "$1" ] || return
+  head -n 300 "$1" | jq -rs '
+    map(select(.type == "user") | .message.content
+        | if type == "string" then . else ([.[]? | select(.type == "text") | .text] | first // "") end
+        | select(type == "string" and length > 0 and (startswith("<") | not)))
+    | first // empty | gsub("\\s+"; " ") | .[0:80]' 2>/dev/null
+}
+
+snippet() { printf '%s' "$1" | jq -Rrs 'gsub("[*_#`>]"; "") | gsub("\\s+"; " ") | ltrimstr(" ") | .[0:80]'; }
+
+write_session() {
+  local sid="$1" cwd="$2" root="$3" tp="$4" reply="$5" pending="$6" locked="$7" f label src
+  f="$SESS/$sid.json"
+  label=$(jq -r 'select(.labelSource == "prompt") | .label // empty' "$f" 2>/dev/null)
+  src=prompt
+  [ -n "$label" ] || label=$(first_prompt "$tp")
+  if [ -z "$label" ]; then label=$(snippet "$reply"); src=reply; fi
+  jq -n --arg id "$sid" --arg cwd "$cwd" --arg root "$root" --arg project "$(basename "$root")" \
+        --arg label "$label" --arg src "$src" --argjson seen "$(date +%s)" \
+        --argjson pending "$pending" --arg locked "$locked" \
+    '{id: $id, cwd: $cwd, root: $root, project: $project, label: $label, labelSource: $src,
+      lastSeen: $seen, pending: $pending, locked: $locked}' >"$f.tmp.$$" && mv "$f.tmp.$$" "$f"
+}
+
+hook_main() {
+  local input="$1" sid cwd tp reply root locked rule pending=false
+  reply=$(extract_last_reply "$input")
+  [ -n "$reply" ] || return
+  sid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+  case "$sid" in *[!A-Za-z0-9_-]*) sid="" ;; esac
+  if [ -z "$sid" ]; then                       # ohne Session-ID wie früher
+    [ -f "$DIR/muted" ] || speak_reply "$reply"
+    return
+  fi
+  cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+  tp=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+  root=$(project_root "${cwd:-$HOME}")
+  locked=$(env_rule)
+  rule=$(decide "$sid" "$cwd" "$root" "$locked")
+
+  mkdir -p "$SESS"
+  find "$SESS" -type f -mtime +7 -delete 2>/dev/null   # verfallene Sessions aufräumen
+  if [ -f "$DIR/muted" ] || [ "$rule" = off ]; then
+    printf '%s' "$reply" >"$SESS/$sid.reply"            # nur merken, nicht zusammenfassen
+    pending=true
+    touch "$DIR/unheard"
+  else
+    rm -f "$SESS/$sid.reply"
+  fi
+  write_session "$sid" "$cwd" "$root" "$tp" "$reply" "$pending" "$locked"
+  [ "$pending" = false ] && speak_reply "$reply"
+}
+
 mkdir -p "$DIR"
 
 case "${1:-}" in
   --version) echo "$HOOK_VERSION"; exit 0 ;;
+  --project-root) project_root "${2:-$PWD}"; exit 0 ;;
+  --speak-session)
+    sid="${2:-}"
+    case "$sid" in ''|*[!A-Za-z0-9_-]*) exit 1 ;; esac
+    [ -s "$SESS/$sid.reply" ] || exit 0
+    reply=$(cat "$SESS/$sid.reply")
+    rm -f "$SESS/$sid.reply"
+    if [ -f "$SESS/$sid.json" ]; then
+      jq '.pending = false' "$SESS/$sid.json" >"$SESS/$sid.json.tmp.$$" && mv "$SESS/$sid.json.tmp.$$" "$SESS/$sid.json"
+    fi
+    speak_reply "$reply"
+    exit 0 ;;
   --default-prompt) default_prompt "$(resolve_lang "${2:-$SPEAK_LANGUAGE}")"; echo; exit 0 ;;
   --mute)    touch "$DIR/muted"; stop_playback; echo "Vorlesen aus."; exit 0 ;;
   --unmute)  rm -f "$DIR/muted"; echo "Vorlesen an."; exit 0 ;;
@@ -216,10 +348,9 @@ case "${1:-}" in
     exit 0 ;;
 esac
 
-[ -f "$DIR/muted" ] && exit 0
-
 # Hook-Modus: stdin lesen, Rest im Hintergrund, damit Claude Code nicht blockiert.
+# Die Ruhe-Taste (muted) prüft hook_main: stumme Antworten werden als ungehört vermerkt.
 input=$(cat)
-( run "$input" ) </dev/null >/dev/null 2>>"$LOG" &
+( hook_main "$input" ) </dev/null >/dev/null 2>>"$LOG" &
 disown
 exit 0

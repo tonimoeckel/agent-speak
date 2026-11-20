@@ -8,14 +8,18 @@ Gesteuert wird das über ein kleines Overlay am Bildschirmrand (ähnlich wie bei
 
 <img src="docs/overlay.png" width="300" alt="Overlay">
 
-- 🔊 Vorlesen an/aus
+- 🔊 Ruhe-Taste: vorübergehend alles stumm
+- 💬 Session-Zeile: die zuletzt fertige Session vorlesen oder stumm schalten; der Pfeil daneben öffnet die Liste der letzten Sessions
 - ⏹ Laufende Ansage stoppen
 - ↺ Letzte Ansage wiederholen
 - ⚙︎ Einstellungen (ElevenLabs-Key, Stimme, Modell, Sprechtempo, Systemstimme, Overlay-Position, Hook)
 - ✍︎ Prompt der Zusammenfassung einsehen und anpassen, Länge der Ansage wählen (kurz, normal, ausführlich)
+- 🎚 Sessions einzeln steuern: Standard für neue Sessions (vorlesen oder stumm), Ausnahmen pro Session und pro Projekt, `AGENT_SPEAK=off claude` beim Start
 - 🌐 Sprache Deutsch oder Englisch, für die App und die Ansagen (Standard: Systemsprache)
 
 Du kannst das Overlay greifen und an eine andere Stelle ziehen. Lässt du los, rastet es am nächsten Rand ein, links oder rechts. Die Höhe merkt es sich.
+
+Stumme Sessions werden nicht zusammengefasst, ihre letzte Antwort wird nur gemerkt. Ein blauer Punkt am Griff zeigt, dass es Ungehörtes gibt; ein Klick in der Liste liest es vor. Begriffe und Entscheidungen: [Glossar](docs/GLOSSAR.md), [ADR 0001](docs/adr/0001-session-steuerung.md).
 
 Solange zusammengefasst wird, pulsiert der Griff. Während der Ansage zeigt er Schallwellen. Dieselben Funktionen gibt es zusätzlich über das Lautsprecher-Symbol in der Menüleiste.
 
@@ -60,6 +64,7 @@ Agent Speak (Overlay) ────────┘  liest den Status, schaltet mu
 - Konfiguration: `~/.claude/hooks/speak-summary/config`. Gepflegt wird sie von der App, du kannst sie aber auch von Hand bearbeiten.
 - Eigener Prompt: `~/.claude/hooks/speak-summary/prompt.txt`. Die Datei gibt es nur, wenn du den Prompt änderst; ohne sie gilt der Standard aus dem Skript (`speak-summary.sh --default-prompt [de|en]`). `{{LAENGE}}` bzw. `{{LENGTH}}` wird durch die gewählte Länge ersetzt.
 - Sprache: `SPEAK_LANGUAGE` in der Konfiguration (`system`, `de` oder `en`). Sie bestimmt den Standard-Prompt, die Längenangabe, die Test-Ansage und die Standard-Systemstimme (Anna bzw. Samantha). Beim Umschalten in der App wird ein unveränderter Prompt mitgewechselt, ein eigener bleibt erhalten.
+- Session-Steuerung: Regeln in `rules.json` (schreibt die App), zuletzt gesehene Sessions in `sessions/` (schreibt der Hook). Rangfolge: `AGENT_SPEAK` → Session-Ausnahme → Projekt-Regel → Standard (`NEW_SESSIONS` in der config). Ein Projekt ist das Git-Repository samt Worktrees.
 - Wird eine neue App-Version gestartet, aktualisiert sie das installierte Hook-Skript automatisch.
 
 Kommandozeile, falls gewünscht:

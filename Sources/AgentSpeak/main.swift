@@ -91,11 +91,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let toggle = menu.addItem(withTitle: tr("Vorlesen aktiv", "Read aloud"), action: #selector(toggleEnabled), keyEquivalent: "")
-        toggle.state = state.enabled ? .on : .off
+        let toggle = menu.addItem(withTitle: tr("Ruhe – alles stumm", "Mute all sessions"), action: #selector(toggleEnabled), keyEquivalent: "")
+        toggle.state = state.enabled ? .off : .on
         let stop = menu.addItem(withTitle: tr("Ansage stoppen", "Stop speaking"), action: state.speaking ? #selector(stopPlayback) : nil, keyEquivalent: "")
         stop.isEnabled = state.speaking
         menu.addItem(withTitle: tr("Letzte Ansage wiederholen", "Repeat last summary"), action: state.hasLastText ? #selector(replay) : nil, keyEquivalent: "")
+        menu.addItem(.separator())
+        let sessionsItem = menu.addItem(withTitle: tr("Sessions", "Sessions"), action: nil, keyEquivalent: "")
+        sessionsItem.submenu = sessionsMenu()
         menu.addItem(.separator())
         let overlay = menu.addItem(withTitle: tr("Overlay anzeigen", "Show overlay"), action: #selector(toggleOverlay), keyEquivalent: "")
         overlay.state = state.showOverlay ? .on : .off
@@ -103,6 +106,65 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: tr("Agent Speak beenden", "Quit Agent Speak"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         for i in menu.items where i.action != #selector(NSApplication.terminate(_:)) { i.target = self }
+    }
+
+    // MARK: Sessions
+
+    private func sessionsMenu() -> NSMenu {
+        let m = NSMenu()
+        let recent = state.recentSessions
+        if recent.isEmpty {
+            m.addItem(withTitle: tr("Noch keine Sessions", "No sessions yet"), action: nil, keyEquivalent: "").isEnabled = false
+            return m
+        }
+        for s in recent {
+            let item = m.addItem(withTitle: (s.pending ? "● " : "") + s.title(maxLabel: 40), action: nil, keyEquivalent: "")
+            item.state = state.isOn(s) ? .on : .off
+            item.submenu = sessionSubmenu(s)
+        }
+        return m
+    }
+
+    private func sessionSubmenu(_ s: SessionInfo) -> NSMenu {
+        let m = NSMenu()
+        let locked = s.lockedValue != nil
+        let read = m.addItem(withTitle: tr("Diese Session vorlesen", "Read this session aloud") + (locked ? " (AGENT_SPEAK)" : ""),
+                             action: locked ? nil : #selector(toggleSessionItem(_:)), keyEquivalent: "")
+        read.state = state.isOn(s) ? .on : .off
+        read.representedObject = s.id
+        read.target = self
+        if s.pending {
+            let p = m.addItem(withTitle: tr("Ungehörte Antwort vorlesen", "Read unheard reply aloud"),
+                              action: #selector(speakPendingItem(_:)), keyEquivalent: "")
+            p.representedObject = s.id
+            p.target = self
+        }
+        m.addItem(.separator())
+        m.addItem(withTitle: tr("Projekt „\(s.project)“:", "Project “\(s.project)”:"), action: nil, keyEquivalent: "").isEnabled = false
+        let current = state.rules.projects[s.root]
+        let std = state.newSessionsOn ? tr("vorlesen", "read aloud") : tr("stumm", "muted")
+        for (title, value) in [(tr("Immer vorlesen", "Always read aloud"), "on"),
+                               (tr("Immer stumm", "Always muted"), "off"),
+                               (tr("Standard (\(std))", "Default (\(std))"), "")] {
+            let i = m.addItem(withTitle: title, action: #selector(setProjectItem(_:)), keyEquivalent: "")
+            i.state = (current ?? "") == value ? .on : .off
+            i.representedObject = [s.root, value]
+            i.target = self
+            i.indentationLevel = 1
+        }
+        return m
+    }
+
+    private func session(_ sender: NSMenuItem) -> SessionInfo? {
+        guard let id = sender.representedObject as? String else { return nil }
+        return state.sessions.first { $0.id == id }
+    }
+
+    @objc private func toggleSessionItem(_ sender: NSMenuItem) { if let s = session(sender) { state.toggleSession(s) } }
+    @objc private func speakPendingItem(_ sender: NSMenuItem) { if let s = session(sender) { state.speakPending(s) } }
+    @objc private func setProjectItem(_ sender: NSMenuItem) {
+        guard let v = sender.representedObject as? [String], v.count == 2 else { return }
+        state.setProject(v[0], on: v[1].isEmpty ? nil : v[1] == "on")
     }
 
     @objc private func toggleEnabled() { state.toggleEnabled() }

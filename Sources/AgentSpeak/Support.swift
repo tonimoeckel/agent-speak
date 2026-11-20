@@ -14,6 +14,9 @@ enum Paths {
     static let summarizing = hookDir.appendingPathComponent("summarizing")
     static let lastText = hookDir.appendingPathComponent("last.txt")
     static let prompt = hookDir.appendingPathComponent("prompt.txt")
+    static let rules = hookDir.appendingPathComponent("rules.json")
+    static let sessionsDir = hookDir.appendingPathComponent("sessions")
+    static let unheard = hookDir.appendingPathComponent("unheard")
     static let log = hookDir.appendingPathComponent("last.log")
     static let claudeSettings = home.appendingPathComponent(".claude/settings.json")
     static var bundledScript: URL? { Bundle.main.url(forResource: "speak-summary", withExtension: "sh") }
@@ -97,6 +100,7 @@ struct HookConfig: Equatable {
     var sayRate = 190
     var summaryModel = "haiku"
     var summaryLength = "normal"
+    var newSessions = "on"
     var claudeBin = ""
 
     static func load() -> HookConfig {
@@ -118,6 +122,7 @@ struct HookConfig: Equatable {
         c.sayRate = Int(v["SAY_RATE"] ?? "") ?? c.sayRate
         c.summaryModel = v["SUMMARY_MODEL"] ?? c.summaryModel
         c.summaryLength = v["SUMMARY_LENGTH"] ?? c.summaryLength
+        c.newSessions = v["NEW_SESSIONS"] == "off" ? "off" : "on"
         c.claudeBin = v["CLAUDE_BIN"] ?? c.claudeBin
         return c
     }
@@ -150,6 +155,10 @@ struct HookConfig: Equatable {
         SUMMARY_MODEL=\(q(summaryModel))
         # Länge der Ansage: kurz | normal | ausfuehrlich (ersetzt {{LAENGE}}/{{LENGTH}} im Prompt)
         SUMMARY_LENGTH=\(q(summaryLength))
+
+        # Standard für Sessions ohne Ausnahme: on = vorlesen | off = stumm (Ausnahmen in rules.json)
+        NEW_SESSIONS=\(q(newSessions))
+
         CLAUDE_BIN=\(q(claudeBin))
 
         """
