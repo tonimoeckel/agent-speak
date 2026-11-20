@@ -27,28 +27,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Ohne Hauptmenü funktionieren ⌘C/⌘V in Textfeldern nicht (z. B. API-Key einfügen).
-    private static func makeMainMenu() -> NSMenu {
+    static func makeMainMenu() -> NSMenu {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Einstellungen …", action: #selector(AppDelegate.openSettings), keyEquivalent: ",")
+        appMenu.addItem(withTitle: tr("Einstellungen …", "Settings …"), action: #selector(AppDelegate.openSettings), keyEquivalent: ",")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Agent Speak beenden", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: tr("Agent Speak beenden", "Quit Agent Speak"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 
         let editItem = NSMenuItem()
-        let edit = NSMenu(title: "Bearbeiten")
-        edit.addItem(withTitle: "Ausschneiden", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        edit.addItem(withTitle: "Kopieren", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "Einsetzen", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "Alles auswählen", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let edit = NSMenu(title: tr("Bearbeiten", "Edit"))
+        edit.addItem(withTitle: tr("Ausschneiden", "Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: tr("Kopieren", "Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: tr("Einsetzen", "Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: tr("Alles auswählen", "Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         main.addItem(editItem)
 
         let winItem = NSMenuItem()
-        let win = NSMenu(title: "Fenster")
-        win.addItem(withTitle: "Schließen", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let win = NSMenu(title: tr("Fenster", "Window"))
+        win.addItem(withTitle: tr("Schließen", "Close"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         winItem.submenu = win
         main.addItem(winItem)
         return main
@@ -91,17 +91,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let toggle = menu.addItem(withTitle: "Vorlesen aktiv", action: #selector(toggleEnabled), keyEquivalent: "")
+        let toggle = menu.addItem(withTitle: tr("Vorlesen aktiv", "Read aloud"), action: #selector(toggleEnabled), keyEquivalent: "")
         toggle.state = state.enabled ? .on : .off
-        let stop = menu.addItem(withTitle: "Ansage stoppen", action: state.speaking ? #selector(stopPlayback) : nil, keyEquivalent: "")
+        let stop = menu.addItem(withTitle: tr("Ansage stoppen", "Stop speaking"), action: state.speaking ? #selector(stopPlayback) : nil, keyEquivalent: "")
         stop.isEnabled = state.speaking
-        menu.addItem(withTitle: "Letzte Ansage wiederholen", action: state.hasLastText ? #selector(replay) : nil, keyEquivalent: "")
+        menu.addItem(withTitle: tr("Letzte Ansage wiederholen", "Repeat last summary"), action: state.hasLastText ? #selector(replay) : nil, keyEquivalent: "")
         menu.addItem(.separator())
-        let overlay = menu.addItem(withTitle: "Overlay anzeigen", action: #selector(toggleOverlay), keyEquivalent: "")
+        let overlay = menu.addItem(withTitle: tr("Overlay anzeigen", "Show overlay"), action: #selector(toggleOverlay), keyEquivalent: "")
         overlay.state = state.showOverlay ? .on : .off
-        menu.addItem(withTitle: "Einstellungen …", action: #selector(openSettings), keyEquivalent: ",")
+        menu.addItem(withTitle: tr("Einstellungen …", "Settings …"), action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Agent Speak beenden", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: tr("Agent Speak beenden", "Quit Agent Speak"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         for i in menu.items where i.action != #selector(NSApplication.terminate(_:)) { i.target = self }
     }
 

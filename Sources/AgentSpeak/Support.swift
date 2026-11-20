@@ -87,6 +87,7 @@ enum Shell {
 // MARK: - Hook-Konfiguration (Shell-Datei, wird vom Skript per `source` gelesen)
 
 struct HookConfig: Equatable {
+    var language = "system"
     var ttsEngine = "auto"
     var voiceID = ""
     var voiceName = ""
@@ -107,6 +108,7 @@ struct HookConfig: Equatable {
             guard !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else { continue }
             v[String(line[..<eq])] = unquote(String(line[line.index(after: eq)...]))
         }
+        c.language = v["SPEAK_LANGUAGE"] ?? c.language
         c.ttsEngine = v["TTS_ENGINE"] ?? c.ttsEngine
         c.voiceID = v["ELEVENLABS_VOICE_ID"] ?? c.voiceID
         c.voiceName = v["ELEVENLABS_VOICE_NAME"] ?? c.voiceName
@@ -127,6 +129,9 @@ struct HookConfig: Equatable {
         # Konfiguration für speak-summary.sh – wird von der Agent-Speak-App geschrieben.
         # Kann auch von Hand bearbeitet werden (Shell-Syntax).
 
+        # Sprache der App und der Ansagen: system | de | en
+        SPEAK_LANGUAGE=\(q(language))
+
         # auto = ElevenLabs, wenn Key + Voice-ID da sind, sonst Systemstimme | elevenlabs | say
         TTS_ENGINE=\(q(ttsEngine))
 
@@ -143,7 +148,7 @@ struct HookConfig: Equatable {
 
         # Modell für die Zusammenfassung (läuft über das Claude-Abo via `claude -p`)
         SUMMARY_MODEL=\(q(summaryModel))
-        # Länge der Ansage: kurz | normal | ausfuehrlich (ersetzt {{LAENGE}} im Prompt)
+        # Länge der Ansage: kurz | normal | ausfuehrlich (ersetzt {{LAENGE}}/{{LENGTH}} im Prompt)
         SUMMARY_LENGTH=\(q(summaryLength))
         CLAUDE_BIN=\(q(claudeBin))
 
@@ -167,11 +172,13 @@ struct HookConfig: Equatable {
 
 /// Der Standard-Prompt steht nur im Hook-Skript (`--default-prompt`); ein eigener liegt in prompt.txt.
 enum SummaryPrompt {
-    static let placeholder = "{{LAENGE}}"
+    /// Beide Schreibweisen werden vom Hook ersetzt; der Standard-Prompt nutzt die der Sprache.
+    static let placeholders = ["{{LAENGE}}", "{{LENGTH}}"]
+    static var placeholder: String { L10n.lang == .de ? "{{LAENGE}}" : "{{LENGTH}}" }
 
-    static func defaultText() -> String {
+    static func defaultText(_ lang: Lang) -> String {
         guard let script = [Paths.bundledScript, Paths.script].compactMap({ $0 }).first(where: Paths.exists) else { return "" }
-        return Shell.run("/bin/bash", [script.path, "--default-prompt"]).out
+        return Shell.run("/bin/bash", [script.path, "--default-prompt", lang.rawValue]).out
     }
 
     static func custom() -> String? {
@@ -284,19 +291,20 @@ enum ElevenLabs {
         let (data, resp) = try await URLSession.shared.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
-            throw APIError(message: code == 401 ? "API-Key ungültig (401)." : "ElevenLabs antwortet mit HTTP \(code).")
+            throw APIError(message: code == 401 ? tr("API-Key ungültig (401).", "Invalid API key (401).")
+                                               : tr("ElevenLabs antwortet mit HTTP \(code).", "ElevenLabs returned HTTP \(code)."))
         }
         struct R: Decodable { let voices: [ElevenVoice] }
         return try JSONDecoder().decode(R.self, from: data).voices
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    static let models: [(id: String, label: String)] = [
-        ("eleven_flash_v2_5", "Flash v2.5 – schnell, günstig"),
+    static var models: [(id: String, label: String)] { [
+        ("eleven_flash_v2_5", tr("Flash v2.5 – schnell, günstig", "Flash v2.5 – fast, low cost")),
         ("eleven_turbo_v2_5", "Turbo v2.5"),
-        ("eleven_multilingual_v2", "Multilingual v2 – beste Qualität"),
-        ("eleven_v3", "v3 – ausdrucksstark"),
-    ]
+        ("eleven_multilingual_v2", tr("Multilingual v2 – beste Qualität", "Multilingual v2 – best quality")),
+        ("eleven_v3", tr("v3 – ausdrucksstark", "v3 – expressive")),
+    ] }
 }
 
 // MARK: - Systemstimmen (`say -v '?'`)
@@ -343,7 +351,7 @@ enum HookInstaller {
     }
 
     static func installScript() throws {
-        guard let bundled = Paths.bundledScript else { throw InstallError(message: "Hook-Skript fehlt im App-Bundle.") }
+        guard let bundled = Paths.bundledScript else { throw InstallError(message: tr("Hook-Skript fehlt im App-Bundle.", "The hook script is missing from the app bundle.")) }
         let fm = FileManager.default
         try fm.createDirectory(at: Paths.hookDir, withIntermediateDirectories: true)
         if Paths.exists(Paths.script) { try fm.removeItem(at: Paths.script) }
@@ -383,14 +391,14 @@ enum HookInstaller {
 
     /// Ändert ~/.claude/settings.json mit jq (erhält Reihenfolge und Formatierung der übrigen Einträge).
     private static func editSettings(filter: String) throws {
-        guard let jq = Shell.findJQ() else { throw InstallError(message: "jq wurde nicht gefunden (brew install jq).") }
+        guard let jq = Shell.findJQ() else { throw InstallError(message: tr("jq wurde nicht gefunden (brew install jq).", "jq not found (brew install jq).")) }
         let fm = FileManager.default
         let url = Paths.claudeSettings
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if !Paths.exists(url) { try "{}\n".write(to: url, atomically: true, encoding: .utf8) }
         let r = Shell.run(jq, ["--arg", "cmd", command, "--arg", "marker", marker, filter, url.path])
         guard r.status == 0, !r.out.isEmpty else {
-            throw InstallError(message: "settings.json konnte nicht gelesen werden: \(r.err)")
+            throw InstallError(message: tr("settings.json konnte nicht gelesen werden: ", "Could not read settings.json: ") + r.err)
         }
         let backup = url.deletingLastPathComponent().appendingPathComponent("settings.json.bak-agent-speak")
         try? fm.removeItem(at: backup)

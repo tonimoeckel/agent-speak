@@ -23,6 +23,8 @@ fi
 echo "▸ Bundle …"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+# Leere .lproj-Ordner: macOS erkennt so Deutsch und Englisch (Systemdialoge, Sprache pro App)
+mkdir -p "$APP/Contents/Resources/de.lproj" "$APP/Contents/Resources/en.lproj"
 cp "$BIN" "$APP/Contents/MacOS/AgentSpeak"
 cp hook/speak-summary.sh "$APP/Contents/Resources/speak-summary.sh"
 cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"

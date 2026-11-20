@@ -20,15 +20,22 @@ enum Snapshot {
         write(OverlayView(model: expanded, state: state) { _ in }.background(Color(white: 0.55)),
               size: OverlayController.expandedSize, to: dir.appendingPathComponent("overlay-expanded.png"))
 
-        // Längster Tooltip – darf die Button-Spalte nicht verschieben
-        let gear = OverlayModel()
-        gear.expanded = true
-        gear.hovered = .settings
-        write(OverlayView(model: gear, state: state) { _ in }.background(Color(white: 0.55)),
-              size: OverlayController.expandedSize, to: dir.appendingPathComponent("overlay-settings-hover.png"))
+        // Texte in beiden Sprachen (Dateien mit Suffix -de / -en)
+        let saved = L10n.lang
+        for lang in [Lang.de, .en] {
+            L10n.lang = lang
+            let suffix = "-\(lang.rawValue).png"
+            // Längster Tooltip – darf die Button-Spalte nicht verschieben
+            let gear = OverlayModel()
+            gear.expanded = true
+            gear.hovered = .settings
+            write(OverlayView(model: gear, state: state) { _ in }.background(Color(white: 0.55)),
+                  size: OverlayController.expandedSize, to: dir.appendingPathComponent("overlay-settings-hover" + suffix))
 
-        write(SettingsView(model: SettingsModel(), state: state),
-              size: NSSize(width: 540, height: 720), to: dir.appendingPathComponent("settings.png"))
+            write(SettingsView(model: SettingsModel(), state: state),
+                  size: NSSize(width: 540, height: 720), to: dir.appendingPathComponent("settings" + suffix))
+        }
+        L10n.lang = saved
     }
 
     private static func write<V: View>(_ view: V, size: NSSize, to url: URL) {

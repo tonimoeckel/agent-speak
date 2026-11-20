@@ -304,12 +304,13 @@ struct OverlayView: View {
     private func title(_ b: OverlayButton) -> String {
         switch b {
         case .toggle:
-            if state.speaking { return "Spricht gerade · Vorlesen ausschalten" }
-            if state.summarizing { return "Fasst zusammen · Vorlesen ausschalten" }
-            return state.enabled ? "Vorlesen an · klicken zum Ausschalten" : "Vorlesen aus · klicken zum Einschalten"
-        case .stop: return state.busy ? "Ansage stoppen" : "Gerade keine Ansage"
-        case .replay: return state.hasLastText ? "Letzte Ansage wiederholen" : "Noch keine Ansage"
-        case .settings: return "Einstellungen · zum Verschieben ziehen"
+            if state.speaking { return tr("Spricht gerade · Vorlesen ausschalten", "Speaking · turn off read aloud") }
+            if state.summarizing { return tr("Fasst zusammen · Vorlesen ausschalten", "Summarizing · turn off read aloud") }
+            return state.enabled ? tr("Vorlesen an · klicken zum Ausschalten", "Read aloud on · click to turn off")
+                                 : tr("Vorlesen aus · klicken zum Einschalten", "Read aloud off · click to turn on")
+        case .stop: return state.busy ? tr("Ansage stoppen", "Stop speaking") : tr("Gerade keine Ansage", "Nothing playing")
+        case .replay: return state.hasLastText ? tr("Letzte Ansage wiederholen", "Repeat last summary") : tr("Noch keine Ansage", "No summary yet")
+        case .settings: return tr("Einstellungen · zum Verschieben ziehen", "Settings · drag to move")
         }
     }
 }

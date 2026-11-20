@@ -1,5 +1,7 @@
 # Agent Speak
 
+*English summary: Agent Speak reads a short spoken summary aloud after every Claude Code reply, including background and a recommendation when Claude needs a decision. The app and the spoken summaries are available in German and English (Settings → Language, defaults to the system language).*
+
 Liest nach jeder Antwort von **Claude Code** eine kurze Zusammenfassung vor. Braucht Claude eine Entscheidung von dir, hörst du zusätzlich den Hintergrund und Claudes Empfehlung für den nächsten Schritt.
 
 Gesteuert wird das über ein kleines Overlay am Bildschirmrand (ähnlich wie bei Wispr Flow). Es sitzt immer auf dem Bildschirm, auf dem gerade der Mauszeiger ist. Fährst du mit der Maus darüber, klappt es auf:
@@ -11,6 +13,7 @@ Gesteuert wird das über ein kleines Overlay am Bildschirmrand (ähnlich wie bei
 - ↺ Letzte Ansage wiederholen
 - ⚙︎ Einstellungen (ElevenLabs-Key, Stimme, Modell, Sprechtempo, Systemstimme, Overlay-Position, Hook)
 - ✍︎ Prompt der Zusammenfassung einsehen und anpassen, Länge der Ansage wählen (kurz, normal, ausführlich)
+- 🌐 Sprache Deutsch oder Englisch, für die App und die Ansagen (Standard: Systemsprache)
 
 Du kannst das Overlay greifen und an eine andere Stelle ziehen. Lässt du los, rastet es am nächsten Rand ein, links oder rechts. Die Höhe merkt es sich.
 
@@ -55,7 +58,8 @@ Agent Speak (Overlay) ────────┘  liest den Status, schaltet mu
 - Das Skript läuft im Hintergrund, Claude Code wird also nicht ausgebremst. Kommt eine neue Antwort, bricht die laufende Ansage ab.
 - Der ElevenLabs-Key liegt nur im macOS-Schlüsselbund (Dienst `elevenlabs-api-key`), nie in einer Datei. Lesen dürfen ihn die App und `/usr/bin/security`, also das Hook-Skript.
 - Konfiguration: `~/.claude/hooks/speak-summary/config`. Gepflegt wird sie von der App, du kannst sie aber auch von Hand bearbeiten.
-- Eigener Prompt: `~/.claude/hooks/speak-summary/prompt.txt`. Die Datei gibt es nur, wenn du den Prompt änderst; ohne sie gilt der Standard aus dem Skript (`speak-summary.sh --default-prompt`). `{{LAENGE}}` wird durch die gewählte Länge ersetzt.
+- Eigener Prompt: `~/.claude/hooks/speak-summary/prompt.txt`. Die Datei gibt es nur, wenn du den Prompt änderst; ohne sie gilt der Standard aus dem Skript (`speak-summary.sh --default-prompt [de|en]`). `{{LAENGE}}` bzw. `{{LENGTH}}` wird durch die gewählte Länge ersetzt.
+- Sprache: `SPEAK_LANGUAGE` in der Konfiguration (`system`, `de` oder `en`). Sie bestimmt den Standard-Prompt, die Längenangabe, die Test-Ansage und die Standard-Systemstimme (Anna bzw. Samantha). Beim Umschalten in der App wird ein unveränderter Prompt mitgewechselt, ein eigener bleibt erhalten.
 - Wird eine neue App-Version gestartet, aktualisiert sie das installierte Hook-Skript automatisch.
 
 Kommandozeile, falls gewünscht:

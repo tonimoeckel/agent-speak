@@ -5,7 +5,7 @@ import ServiceManagement
 enum OverlaySide: String, CaseIterable, Identifiable {
     case left, right
     var id: String { rawValue }
-    var label: String { self == .left ? "Links" : "Rechts" }
+    var label: String { self == .left ? tr("Links", "Left") : tr("Rechts", "Right") }
 }
 
 /// Zentrale Zustandsquelle. Der Hook kommuniziert über Dateien in ~/.claude/hooks/speak-summary,
